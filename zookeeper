@@ -1,0 +1,159 @@
+package com.bawie.zktest;
+
+import org.apache.zookeeper.*;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+
+import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.util.List;
+
+public class TestZK {
+
+    private ZooKeeper zookeeper;
+
+    private ZooKeeper zkWithWatcher;
+
+    @Before
+    public void init() throws IOException {
+        zookeeper = new ZooKeeper("hdp1:2181,hdp2:2181,hdp3:2181", 2000, null);
+        zkWithWatcher = new ZooKeeper("hdp1:2181,hdp2:2181,hdp3:2181", 2000, new Watcher() {
+            public void process(WatchedEvent watchedEvent) {
+                try {
+
+                    //判断事件类型为NodeDataChanged（节点数据发生变化）
+                    if(watchedEvent.getState() == Event.KeeperState.SyncConnected && watchedEvent.getType() == Event.EventType.NodeDataChanged){
+                        System.out.println("节点数据变化了，变化的节点为"+watchedEvent.getPath());
+
+                            byte[] data = zkWithWatcher.getData(watchedEvent.getPath(), true, null);
+                            String str = new String(data, "UTF-8");
+                            System.out.println("新的值是: "+str);
+
+
+                    } else if(watchedEvent.getState() == Event.KeeperState.SyncConnected && watchedEvent.getType() == Event.EventType.NodeChildrenChanged){
+                        System.out.println("节点的子节点发生变化了，变化的父节点是："+watchedEvent.getPath());
+                            List<String> children = zkWithWatcher.getChildren(watchedEvent.getPath(), true);
+                            System.out.println("新的子节点列表为");
+                            for(String node : children){
+                                System.out.println(node);
+                            }
+                            System.out.println("==========================================");
+                    }
+                } catch (KeeperException e) {
+                    e.printStackTrace();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                } catch (UnsupportedEncodingException e) {
+                    e.printStackTrace();
+                }
+            }
+        });
+    }
+
+    /**
+     * 创建节点
+     * @throws IOException
+     * @throws KeeperException
+     * @throws InterruptedException
+     */
+    @Test
+    public void testCreated() throws IOException, KeeperException, InterruptedException {
+        String node = zookeeper.create("/eclipse", "hello java".getBytes(), ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+        System.out.println(node);
+
+    }
+
+    /**
+     * 获取节点数据
+     * @throws KeeperException
+     * @throws InterruptedException
+     * @throws UnsupportedEncodingException
+     */
+    @Test
+    public void testGet() throws KeeperException, InterruptedException, UnsupportedEncodingException {
+        byte[] data = zookeeper.getData("/eclipse", false, null);
+        System.out.println(new String(data, "UTF-8"));
+    }
+
+    /**
+     * 遍历节点下的子节点
+     * @throws KeeperException
+     * @throws InterruptedException
+     */
+    @Test
+    public void testLS() throws KeeperException, InterruptedException {
+        List<String> childrens = zookeeper.getChildren("/bb", false);
+        for(String nodes : childrens){
+            System.out.println(nodes);
+        }
+    }
+
+    /**
+     * 删除节点
+     * @throws KeeperException
+     * @throws InterruptedException
+     */
+    @Test
+    public void testDelete() throws KeeperException, InterruptedException {
+        zookeeper.delete("/eclipse", -1); //-1是删除所有版本
+    }
+
+    /**
+     * 创建监视NodeDataChanged事件的方法
+     * @throws KeeperException
+     * @throws InterruptedException
+     */
+    @Test
+    public void testWatcher() throws KeeperException, InterruptedException {
+        byte[] data = zookeeper.getData("/a", new Watcher() {
+            //回调函数，当/a节点数据发生变化的时候，通知客户端
+            public void process(WatchedEvent watchedEvent) {
+                System.out.println("事件的类型是："+watchedEvent.getType());
+                System.out.println("发生事件的节点是："+watchedEvent.getPath());
+                try {
+                    byte[] result = zookeeper.getData(watchedEvent.getPath(), null, null);
+                    System.out.println("新的值是：" + Integer.parseInt(new String(result, "UTF-8")));
+                } catch (KeeperException e) {
+                    e.printStackTrace();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                } catch (UnsupportedEncodingException e) {
+                    e.printStackTrace();
+                }
+            }
+        }, null);
+
+        Thread.sleep(Long.MAX_VALUE);
+    }
+
+    /**
+     * 监视子节点变化，新增子节点和删除子节点，不能检测到子节点的数据变化，也不能监测孙节点
+     * @throws KeeperException
+     * @throws InterruptedException
+     */
+    @Test
+    public void testLsWatcher() throws KeeperException, InterruptedException {
+        List<String> children = zookeeper.getChildren("/bb", new Watcher() {
+            public void process(WatchedEvent watchedEvent) {
+                System.out.println("事件的类型是："+watchedEvent.getType());
+                System.out.println("发生事件的节点是："+watchedEvent.getPath());
+            }
+        });
+        Thread.sleep(Long.MAX_VALUE);
+    }
+
+    @Test
+    public void testLoopWatcher() throws KeeperException, InterruptedException {
+        byte[] data = zkWithWatcher.getData("/a", true, null);
+        List<String> children = zkWithWatcher.getChildren("/bb", true);
+
+        Thread.sleep(Long.MAX_VALUE);
+    }
+
+    @After
+    public void toClose() throws InterruptedException {
+        zookeeper.close();
+        zkWithWatcher.close();
+    }
+}
